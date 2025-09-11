@@ -11,6 +11,7 @@ from typing import Dict, List, Optional, Tuple
 from openal.alc import alcOpenDevice, alcCreateContext, alcMakeContextCurrent
 import numpy as np
 from openal import Listener 
+from openal import Source, Buffer, Listener
 
 try:
     import openal as al
@@ -97,49 +98,60 @@ class AudioManager:
             'music': music_data
         }
     
-    def play_sound_3d(self, sound_type: str, position: Tuple[float, float, float], 
-                      volume: float = 1.0, loop: bool = False):
+    def play_sound_3d(self, sound_type: str,
+                  position: Tuple[float, float, float],
+                  volume: float = 1.0,
+                  loop: bool = False):
         """Play a 3D positioned sound"""
         if not self.device or sound_type not in self.buffers:
             return
-        
+
         try:
-            # Create source
-            source = al.gen_source()
             
-            # Set source properties
-            al.source_3f(source, al.POSITION, *position)
-            al.source_f(source, al.GAIN, volume)
-            al.source_i(source, al.LOOPING, 1 if loop else 0)
+            source = Source()
             
-            # Create buffer and attach to source
-            buffer = al.gen_buffer()
-            al.buffer_data(buffer, al.FORMAT_MONO16, self.buffers[sound_type], 
-                          len(self.buffers[sound_type]) * 2, 44100)
-            al.source_i(source, al.BUFFER, buffer)
+            buf = Buffer()
+            buf.buffer_data(self.buffers[sound_type], format="mono16", freq=44100)
+
             
-            # Play sound
-            al.source_play(source)
+            source.buffer = buf
+
             
-            # Store source for cleanup
+            source.position = tuple(position)
+            source.gain = volume
+            source.looping = loop
+
+           
+            source.play()
+            
             self.sources[sound_type] = source
-            
+            self.buffers[sound_type] = buf
+
         except Exception as e:
             print(f"Audio error: {e}")
-    
+
+
     def update_listener_position(self, x: float, y: float, z: float):
         """Update listener position for 3D audio"""
         if self.device:
             self.listener_pos = [x, y, z]
-            al.listener_3f(al.POSITION, *self.listener_pos)
-    
+            Listener.position = tuple(self.listener_pos)
+
+
     def cleanup(self):
         """Clean up audio resources"""
         if self.device:
-            for source in self.sources.values():
-                al.delete_source(source)
-            al.delete_context(self.context)
-            al.close_device(self.device)
+            # detener y liberar cada fuente
+            for src in self.sources.values():
+                src.stop()
+                src.delete()
+            for buf in self.buffers.values():
+                buf.delete()
+
+            # destruir contexto y cerrar dispositivo
+            from openal.alc import alcDestroyContext, alcCloseDevice
+            alcDestroyContext(self.context)
+            alcCloseDevice(self.device)
 
 class GameState:
     """Manages the current state of the game"""
