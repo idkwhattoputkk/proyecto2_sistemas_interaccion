@@ -8,7 +8,9 @@ import time
 import sys
 import os
 from typing import Dict, List, Optional, Tuple
+from openal.alc import alcOpenDevice, alcCreateContext, alcMakeContextCurrent
 import numpy as np
+from openal import Listener 
 
 try:
     import openal as al
@@ -35,13 +37,18 @@ class AudioManager:
     
     def _initialize_audio(self):
         """Initialize OpenAL device and context"""
-        self.device = al.open_device()
-        self.context = al.create_context(self.device)
-        al.make_context_current(self.context)
+        self.device = alcOpenDevice(None)
+        if not self.device:
+            raise RuntimeError("No se pudo abrir dispositivo OpenAL")
         
-        # Set listener properties
-        al.listener_3f(al.POSITION, *self.listener_pos)
-        al.listener_3f(al.ORIENTATION, *self.listener_orientation)
+        self.context = alcCreateContext(self.device, None)
+        if not self.context:
+            raise RuntimeError("No se pudo crear contexto OpenAL")
+        
+        alcMakeContextCurrent(self.context)
+        
+        Listener.position = tuple(self.listener_pos)
+        Listener.orientation = tuple(self.listener_orientation)
         
         # Create audio buffers for different sound types
         self._create_sound_buffers()
