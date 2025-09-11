@@ -11,7 +11,7 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 
 try:
-    import PyOpenAL as al
+    import openal as al
 except ImportError:
     print("Error: pyopenal not found. Please install it with: pip install pyopenal")
     sys.exit(1)
