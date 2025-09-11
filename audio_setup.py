@@ -86,7 +86,7 @@ class FallbackAudioManager:
 def create_audio_manager():
     """Create the best available audio manager"""
     try:
-        import pyopenal as al
+        import openal as al
         from main import AudioManager
         return AudioManager()
     except ImportError:
