@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Alternative audio setup for systems without OpenAL
 Provides fallback audio using system audio libraries
