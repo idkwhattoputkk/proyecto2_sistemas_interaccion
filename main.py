@@ -8,16 +8,20 @@ import time
 import sys
 import os
 from typing import Dict, List, Optional, Tuple
-from openal.alc import alcOpenDevice, alcCreateContext, alcMakeContextCurrent
 import numpy as np
-from openal import Listener 
-from openal import Source, Buffer, Listener
 
+# Try to import OpenAL, but use fallback if not available
+al = None
 try:
-    import openal as al
+    import PyOpenAL as al
+    print("OpenAL available - using 3D spatial audio")
 except ImportError:
-    print("Error: pyopenal not found. Please install it with: pip install pyopenal")
-    sys.exit(1)
+    try:
+        import pyopenal as al
+        print("OpenAL available - using 3D spatial audio")
+    except ImportError:
+        print("OpenAL not available - using pygame fallback audio")
+        al = None
 
 class AudioManager:
     """Manages 3D spatial audio using OpenAL"""
@@ -29,6 +33,7 @@ class AudioManager:
         self.buffers = {}
         self.listener_pos = [0.0, 0.0, 0.0]
         self.listener_orientation = [0.0, 0.0, -1.0, 0.0, 1.0, 0.0]
+        self.pygame_available = False
         
         try:
             self._initialize_audio()
@@ -37,22 +42,40 @@ class AudioManager:
             print("Game will run without audio")
     
     def _initialize_audio(self):
-        """Initialize OpenAL device and context"""
-        self.device = alcOpenDevice(None)
-        if not self.device:
-            raise RuntimeError("No se pudo abrir dispositivo OpenAL")
-        
-        self.context = alcCreateContext(self.device, None)
-        if not self.context:
-            raise RuntimeError("No se pudo crear contexto OpenAL")
-        
-        alcMakeContextCurrent(self.context)
-        
-        Listener.position = tuple(self.listener_pos)
-        Listener.orientation = tuple(self.listener_orientation)
-        
-        # Create audio buffers for different sound types
-        self._create_sound_buffers()
+        """Initialize audio system"""
+        if al is None:
+            print("OpenAL not available, using pygame fallback audio")
+            self._create_sound_buffers()
+            self._init_pygame_audio()
+            return
+            
+        try:
+            self.device = al.open_device()
+            self.context = al.create_context(self.device)
+            al.make_context_current(self.context)
+            
+            # Set listener properties
+            al.listener_3f(al.POSITION, *self.listener_pos)
+            al.listener_3f(al.ORIENTATION, *self.listener_orientation)
+            
+            # Create audio buffers for different sound types
+            self._create_sound_buffers()
+        except Exception as e:
+            print(f"OpenAL initialization failed: {e}")
+            print("Using pygame fallback audio")
+            self._create_sound_buffers()
+            self._init_pygame_audio()
+    
+    def _init_pygame_audio(self):
+        """Initialize pygame audio system"""
+        try:
+            import pygame
+            pygame.mixer.init(frequency=44100, size=-16, channels=1)
+            self.pygame_available = True
+            print("Pygame audio initialized successfully")
+        except Exception as e:
+            print(f"Pygame audio initialization failed: {e}")
+            self.pygame_available = False
     
     def _create_sound_buffers(self):
         """Create audio buffers with generated sounds"""
@@ -98,60 +121,83 @@ class AudioManager:
             'music': music_data
         }
     
-    def play_sound_3d(self, sound_type: str,
-                  position: Tuple[float, float, float],
-                  volume: float = 1.0,
-                  loop: bool = False):
+    def play_sound_3d(self, sound_type: str, position: Tuple[float, float, float], 
+                      volume: float = 1.0, loop: bool = False):
         """Play a 3D positioned sound"""
-        if not self.device or sound_type not in self.buffers:
+        if sound_type not in self.buffers:
             return
-
+        
+        # If OpenAL is not available, use pygame fallback
+        if al is None or not self.device:
+            self._play_pygame_audio(sound_type, position, volume)
+            return
+        
         try:
+            # Create source
+            source = al.gen_source()
             
-            source = Source()
+            # Set source properties
+            al.source_3f(source, al.POSITION, *position)
+            al.source_f(source, al.GAIN, volume)
+            al.source_i(source, al.LOOPING, 1 if loop else 0)
             
-            buf = Buffer()
-            buf.buffer_data(self.buffers[sound_type], format="mono16", freq=44100)
-
+            # Create buffer and attach to source
+            buffer = al.gen_buffer()
+            al.buffer_data(buffer, al.FORMAT_MONO16, self.buffers[sound_type], 
+                          len(self.buffers[sound_type]) * 2, 44100)
+            al.source_i(source, al.BUFFER, buffer)
             
-            source.buffer = buf
-
+            # Play sound
+            al.source_play(source)
             
-            source.position = tuple(position)
-            source.gain = volume
-            source.looping = loop
-
-           
-            source.play()
-            
+            # Store source for cleanup
             self.sources[sound_type] = source
-            self.buffers[sound_type] = buf
-
+            
         except Exception as e:
-            print(f"Audio error: {e}")
-
-
+            print(f"OpenAL audio error: {e}")
+            self._play_pygame_audio(sound_type, position, volume)
+    
+    def _play_pygame_audio(self, sound_type: str, position: Tuple[float, float, float], volume: float = 1.0):
+        """Play audio using pygame"""
+        if not self.pygame_available:
+            print(f"[{sound_type.upper()}]")  # Text fallback
+            return
+        
+        try:
+            import pygame
+            import pygame.sndarray
+            
+            # Convert numpy array to pygame sound
+            audio_data = (self.buffers[sound_type] * 32767).astype(np.int16)
+            sound = pygame.sndarray.make_sound(audio_data)
+            
+            # Adjust volume based on distance (simple 3D simulation)
+            distance = np.sqrt(sum(x*x for x in position))
+            if distance > 0:
+                volume_adjusted = volume / (1 + distance * 0.5)
+                sound.set_volume(min(volume_adjusted, 1.0))
+            else:
+                sound.set_volume(volume)
+            
+            sound.play()
+            
+        except Exception as e:
+            print(f"Pygame audio error: {e}")
+            print(f"[{sound_type.upper()}]")  # Text fallback
+    
     def update_listener_position(self, x: float, y: float, z: float):
         """Update listener position for 3D audio"""
         if self.device:
             self.listener_pos = [x, y, z]
-            Listener.position = tuple(self.listener_pos)
-
-
+            al.listener_3f(al.POSITION, *self.listener_pos)
+    
     def cleanup(self):
         """Clean up audio resources"""
         if self.device:
-            # detener y liberar cada fuente
-            for src in self.sources.values():
-                src.stop()
-                src.delete()
-            for buf in self.buffers.values():
-                buf.delete()
-
-            # destruir contexto y cerrar dispositivo
-            from openal.alc import alcDestroyContext, alcCloseDevice
-            alcDestroyContext(self.context)
-            alcCloseDevice(self.device)
+            for source in self.sources.values():
+                al.delete_source(source)
+            al.delete_context(self.context)
+            al.close_device(self.device)
 
 class GameState:
     """Manages the current state of the game"""

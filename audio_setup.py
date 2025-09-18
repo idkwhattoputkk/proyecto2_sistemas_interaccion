@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 Alternative audio setup for systems without OpenAL
 Provides fallback audio using system audio libraries
@@ -86,7 +87,7 @@ class FallbackAudioManager:
 def create_audio_manager():
     """Create the best available audio manager"""
     try:
-        import openal as al
+        import pyopenal as al
         from main import AudioManager
         return AudioManager()
     except ImportError:
